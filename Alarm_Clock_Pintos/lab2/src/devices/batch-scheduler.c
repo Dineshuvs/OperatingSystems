@@ -38,14 +38,29 @@ void oneTask(task_t task);/*Task requires to use the bus and executes methods be
 	void leaveSlot(task_t task); /* task release the slot */
 
 
+int current_direction_thread = SENDER;  /*for declaring current direction of data transfer*/
+/*semaphores declared globally*/
+struct semaphore bus_size;  /*semaphore for BUS_CAPACITY slots*/
+struct semaphore send_priority_task_sema; /*semaphore for priority tasks waiting to send*/
+struct semaphore receive_priority_task_sema; /*semaphore for priority tasks waiting to recieve*/
+struct semaphore send_lowPriority_task_sema; /*semaphore for low priority tasks waiting to send*/
+struct semaphore receive_lowPriority_task_sema; /*semaphore for low priority tasks waiting to receive*/
+
+struct lock mutex_bus;   /*It is used for ensures mutual exclusion*/
 
 /* initializes semaphores */ 
 void init_bus(void){ 
  
     random_init((unsigned int)123456789); 
     
-    msg("NOT IMPLEMENTED");
-    /* FIXME implement */
+     sema_init(&bus_size,BUS_CAPACITY);  /*bus has BUS_CAPACITY slots*/
+    
+    /*counting sema*/
+    sema_init(&send_priority_task_sema,0);
+    sema_init(&receive_priority_task_sema,0);
+    sema_init(&send_lowPriority_task_sema,0);
+    sema_init(&receive_lowPriority_task_sema,0);
+    lock_init (&mutex_bus);
 
 }
 
@@ -116,17 +131,83 @@ void oneTask(task_t task) {
 /* task tries to get slot on the bus subsystem */
 void getSlot(task_t task) 
 {
-    /* FIXME implement */
+    /*First we check the priority,followed by the direction and then subsequently increase the corresponding semapores */
+    if(task.priority == HIGH) 
+      {
+      if(task.direction == SENDER)
+          sema_up(&send_priority_task_sema);
+      else 
+          sema_up(&receive_priority_task_sema); 
+      } 
+    
+    else  
+      {      /*for normal tasks*/
+      if(task.direction == SENDER)     
+          sema_up(&send_lowPriority_task_sema);  
+      else 
+          sema_up(&receive_lowPriority_task_sema);
+      }       
+
+/*if the direction is differnt from the thread*/
+    while(true)
+       {
+	/*enter critical section*/
+	lock_acquire(&mutex_bus);
+        /*checks if bus is free or in our direction*/
+        if(bus_size.value == BUS_CAPACITY || current_direction_thread ==  task.direction )    
+         {  
+
+            /*Checking if there are any high priority task waiting or not*/
+           if(task.priority == HIGH || (send_priority_task_sema.value==0 && receive_priority_task_sema.value==0))
+             {
+               /*For changing to my direction when the bus was available*/
+              current_direction_thread = task.direction; 
+
+              /*Reducing available slots on the bus*/
+              sema_down(&bus_size);
+
+              if(task.priority == HIGH) {
+                if(task.direction == SENDER)
+                  sema_down(&send_priority_task_sema);
+                else 
+                  sema_down(&receive_priority_task_sema); 
+                } 
+              
+              else  {    /*for low priority tasks*/
+                if(task.direction == SENDER)     
+                  sema_down(&send_lowPriority_task_sema);  
+                else 
+                  sema_down(&receive_lowPriority_task_sema);
+              } 
+
+
+              lock_release(&mutex_bus);
+
+              break;   /*Exits out of the while loop*/
+
+            }
+          }
+
+        /*Exiting the critical section*/
+        
+        lock_release(&mutex_bus);
+
+        //Allow other threads to execute
+	timer_sleep((int64_t)((unsigned int)random_ulong()%10));
+      
+      
+      }
 }
 
 /* task processes data on the bus send/receive */
 void transferData(task_t task) 
 {
-    /* FIXME implement */
+timer_sleep((int64_t)((unsigned int)random_ulong()%10));
 }
 
 /* task releases the slot */
 void leaveSlot(task_t task) 
 {
-    /* FIXME implement */
+     /*increment available bus slots*/
+    sema_up(&bus_size);
 }
